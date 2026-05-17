@@ -8,8 +8,23 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "API sleutel niet geconfigureerd op server." });
   }
 
+  const { filters = {} } = req.body || {};
+
+  // Bouw zoekbeschrijving op basis van filters
+  const filterRegels = [];
+  if (filters.zoektype) filterRegels.push(`- Zoektype: ${filters.zoektype}`);
+  if (filters.instrument) filterRegels.push(`- Instrument/rol: ${filters.instrument}`);
+  if (filters.provincie) filterRegels.push(`- Provincie: ${filters.provincie}`);
+  if (filters.genres && filters.genres.length > 0) filterRegels.push(`- Genre(s): ${filters.genres.join(", ")}`);
+  if (filters.maxLeeftijd) filterRegels.push(`- Leeftijdscategorie: ${filters.maxLeeftijd}`);
+  if (filters.maxOud) filterRegels.push(`- Max geplaatst: ${filters.maxOud}`);
+
+  const filterTekst = filterRegels.length > 0
+    ? `\n\nZoekfilters die de gebruiker heeft ingesteld:\n${filterRegels.join("\n")}\nGeef alleen advertenties terug die overeenkomen met deze filters.`
+    : "";
+
   const SYSTEM_PROMPT = `Je bent een assistent die advertenties ophaalt van muzikantenbank.net.
-Zoek op https://www.muzikantenbank.net/advertenties/zoeken naar de meest recente advertenties.
+Zoek op https://www.muzikantenbank.net/advertenties/zoeken naar de meest recente advertenties.${filterTekst}
 Geef uitsluitend een JSON-array terug. Geen uitleg, geen markdown, geen backticks. Alleen de array.
 Elk item bevat:
 - id: unieke string (gebruik de URL of een combinatie van titel+datum)
@@ -24,11 +39,10 @@ Geef maximaal 10 advertenties. Begin direct met [ en eindig met ].`;
   try {
     let messages = [{
       role: "user",
-      content: "Zoek de meest recente advertenties op muzikantenbank.net/advertenties/zoeken en geef ze terug als JSON array."
+      content: `Zoek de meest recente advertenties op muzikantenbank.net/advertenties/zoeken${filterRegels.length > 0 ? " met de opgegeven filters" : ""} en geef ze terug als JSON array.`
     }];
 
     let finalText = null;
-    let allTextBlocks = [];
 
     for (let i = 0; i < 6; i++) {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -60,7 +74,6 @@ Geef maximaal 10 advertenties. Begin direct met [ en eindig met ].`;
       const textBlock = data.content.find(b => b.type === "text");
       if (textBlock && textBlock.text.trim()) {
         finalText = textBlock.text.trim();
-        allTextBlocks.push(`[ronde ${i+1}]: ${finalText.substring(0, 300)}`);
       }
 
       if (data.stop_reason === "end_turn") break;
@@ -80,17 +93,13 @@ Geef maximaal 10 advertenties. Begin direct met [ en eindig met ].`;
     }
 
     if (!finalText) {
-      return res.status(500).json({ error: "Geen tekst ontvangen.", debug: allTextBlocks });
+      return res.status(500).json({ error: "Geen respons ontvangen van model." });
     }
 
     const clean = finalText.replace(/```json|```/g, "").trim();
     const match = clean.match(/\[[\s\S]*\]/);
     if (!match) {
-      // Stuur de ruwe tekst terug als debug info
-      return res.status(500).json({
-        error: "Geen JSON array gevonden.",
-        debug: finalText.substring(0, 500)
-      });
+      return res.status(500).json({ error: "Geen JSON array gevonden.", debug: finalText.substring(0, 500) });
     }
 
     const ads = JSON.parse(match[0]);
