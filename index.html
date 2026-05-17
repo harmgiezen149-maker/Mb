@@ -56,6 +56,12 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useCallback } = React;
 
+    // ============================================================
+    // JOUW API-SLEUTEL — vervang JOUW_API_SLEUTEL_HIER door je sleutel
+    // ============================================================
+    const API_KEY = "JOUW_API_SLEUTEL_HIER";
+    // ============================================================
+
     const STORAGE_KEY = "muzikantenbank_known_ads";
 
     const SYSTEM_PROMPT = `Je bent een parser voor advertenties op muzikantenbank.net.
@@ -74,20 +80,15 @@ Voorbeeld output:
 
 Geef maximaal 20 meest recente advertenties.`;
 
-    function loadApiKey() {
-      try { return localStorage.getItem("mb_api_key") || ""; } catch { return ""; }
-    }
-    function saveApiKey(key) {
-      try { localStorage.setItem("mb_api_key", key); } catch {}
-    }
-
-    async function fetchLatestAds(apiKey) {
-      if (!apiKey) throw new Error("Vul eerst je Anthropic API-sleutel in.");
+    async function fetchLatestAds() {
+      if (!API_KEY || API_KEY === "JOUW_API_SLEUTEL_HIER") {
+        throw new Error("Vul je API-sleutel in bovenaan index.html bij API_KEY.");
+      }
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": apiKey,
+          "x-api-key": API_KEY,
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true"
         },
@@ -103,13 +104,16 @@ Geef maximaal 20 meest recente advertenties.`;
         })
       });
 
-      if (!response.ok) throw new Error(`API fout: ${response.status}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(`API fout ${response.status}: ${err?.error?.message || response.statusText}`);
+      }
       const data = await response.json();
       const textBlock = data.content.find(b => b.type === "text");
-      if (!textBlock) throw new Error("Geen tekstrespons ontvangen");
+      if (!textBlock) throw new Error("Geen tekstrespons ontvangen van API");
       let text = textBlock.text.replace(/```json|```/g, "").trim();
       const match = text.match(/\[[\s\S]*\]/);
-      if (!match) throw new Error("Geen geldige JSON array gevonden");
+      if (!match) throw new Error("Geen geldige JSON array gevonden in respons");
       return JSON.parse(match[0]);
     }
 
@@ -142,23 +146,14 @@ Geef maximaal 20 meest recente advertenties.`;
       const [running, setRunning] = useState(false);
       const [tick, setTick] = useState(0);
       const [countdown, setCountdown] = useState(null);
-      const [apiKey, setApiKey] = useState(loadApiKey());
-      const [showKey, setShowKey] = useState(false);
       const timerRef = useRef(null);
       const knownIdsRef = useRef(loadKnownIds());
-      const apiKeyRef = useRef(loadApiKey());
-
-      function handleApiKeyChange(val) {
-        setApiKey(val);
-        apiKeyRef.current = val;
-        saveApiKey(val);
-      }
 
       const doCheck = useCallback(async () => {
         setStatus("checking");
         setErrorMsg("");
         try {
-          const fetched = await fetchLatestAds(apiKeyRef.current);
+          const fetched = await fetchLatestAds();
           const knownIds = knownIdsRef.current;
           const freshIds = fetched.map(a => a.id);
           const discovered = fetched.filter(a => !knownIds.includes(a.id));
@@ -225,6 +220,7 @@ Geef maximaal 20 meest recente advertenties.`;
 
       return (
         <div style={{ minHeight: "100vh", background: "#0c0d0f", color: "#e8e0d0", fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
+
           {/* Header */}
           <div style={{ borderBottom: "1px solid #222", padding: "24px 32px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div>
@@ -243,29 +239,13 @@ Geef maximaal 20 meest recente advertenties.`;
           </div>
 
           {/* Grid */}
-          <div className="main-grid" style={{ padding: "24px 32px", display: "grid", gridTemplateColumns: "280px 1fr", gap: 32, maxWidth: 1200 }}>
+          <div className="main-grid" style={{ padding: "24px 32px", display: "grid", gridTemplateColumns: "260px 1fr", gap: 32, maxWidth: 1200 }}>
+
             {/* Sidebar */}
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
               <div style={{ border: "1px solid #222", padding: 20 }}>
                 <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 16 }}>INSTELLINGEN</div>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>ANTHROPIC API-SLEUTEL</div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <input
-                      type={showKey ? "text" : "password"}
-                      value={apiKey}
-                      onChange={e => handleApiKeyChange(e.target.value)}
-                      placeholder="sk-ant-..."
-                      style={{ background: "#1a1a1a", border: "1px solid #333", color: "#e8e0d0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "6px 8px", width: "100%", flex: 1 }}
-                    />
-                    <button className="btn" onClick={() => setShowKey(s => !s)} style={{ fontSize: 11, padding: "6px 8px", flexShrink: 0 }}>
-                      {showKey ? "●" : "○"}
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 10, color: "#444", marginTop: 5 }}>
-                    Wordt lokaal opgeslagen. Aanmaken via <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: "#f0a500", textDecoration: "none" }}>console.anthropic.com</a>
-                  </div>
-                </div>
 
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>CHECK-INTERVAL (minuten)</div>
@@ -273,12 +253,14 @@ Geef maximaal 20 meest recente advertenties.`;
                     onChange={e => setIntervalMin(Math.max(1, parseInt(e.target.value) || 5))}
                     disabled={running} />
                 </div>
+
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>BROWSERMELDINGEN</div>
                   {notifGranted
                     ? <span style={{ fontSize: 11, color: "#6ddd6d" }}>✓ Ingeschakeld</span>
                     : <button className="btn" onClick={requestNotifPermission} style={{ fontSize: 11 }}>Inschakelen</button>}
                 </div>
+
                 <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
                   {!running
                     ? <button className="btn primary" onClick={() => setRunning(true)}>▶ START MONITOR</button>
@@ -301,7 +283,12 @@ Geef maximaal 20 meest recente advertenties.`;
                   ].map(({ label, val, highlight, small }) => (
                     <div key={label} style={{ borderBottom: "1px solid #1a1a1a", paddingBottom: 10 }}>
                       <div style={{ fontSize: 9, color: "#444", letterSpacing: "0.15em", marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontSize: small ? 13 : 22, fontWeight: 500, color: highlight ? "#f0a500" : "#e8e0d0", fontFamily: small ? "'IBM Plex Mono'" : "'Bebas Neue', sans-serif", letterSpacing: small ? 0 : "0.05em" }}>{val}</div>
+                      <div style={{
+                        fontSize: small ? 13 : 22, fontWeight: 500,
+                        color: highlight ? "#f0a500" : "#e8e0d0",
+                        fontFamily: small ? "'IBM Plex Mono'" : "'Bebas Neue', sans-serif",
+                        letterSpacing: small ? 0 : "0.05em"
+                      }}>{val}</div>
                     </div>
                   ))}
                 </div>
@@ -326,17 +313,19 @@ Geef maximaal 20 meest recente advertenties.`;
               )}
             </div>
 
-            {/* Main */}
+            {/* Hoofdpaneel */}
             <div>
               {status === "error" && (
                 <div style={{ border: "1px solid #5a1a1a", background: "#0e0000", padding: 16, marginBottom: 20, fontSize: 12, color: "#e05555" }}>
                   ✖ {errorMsg}
                 </div>
               )}
+
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                 {["alle", "gezocht", "aangeboden"].map(f => (
                   <button key={f} className={`btn ${filterType === f ? "active" : ""}`}
-                    onClick={() => setFilterType(f)} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    onClick={() => setFilterType(f)}
+                    style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em" }}>
                     {f}
                   </button>
                 ))}
@@ -349,7 +338,7 @@ Geef maximaal 20 meest recente advertenties.`;
                 </div>
               )}
               {status === "checking" && ads.length === 0 && (
-                <div style={{ color: "#444", fontSize: 13, paddingTop: 40, textAlign: "center" }}>
+                <div style={{ paddingTop: 40, textAlign: "center" }}>
                   <div className="pulse" style={{ fontSize: 11, letterSpacing: "0.2em", color: "#f0a500" }}>OPHALEN VIA WEB SEARCH...</div>
                 </div>
               )}
@@ -358,7 +347,12 @@ Geef maximaal 20 meest recente advertenties.`;
                 {displayAds.map(ad => {
                   const isNew = newAds.some(n => n.id === ad.id);
                   return (
-                    <div key={ad.id} style={{ padding: "14px 18px", border: `1px solid ${isNew ? "#3a2800" : "#1a1a1a"}`, background: isNew ? "#0a0700" : "transparent", transition: "background 0.3s" }}>
+                    <div key={ad.id} style={{
+                      padding: "14px 18px",
+                      border: `1px solid ${isNew ? "#3a2800" : "#1a1a1a"}`,
+                      background: isNew ? "#0a0700" : "transparent",
+                      transition: "background 0.3s"
+                    }}>
                       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
@@ -370,7 +364,11 @@ Geef maximaal 20 meest recente advertenties.`;
                           {ad.datum && <div style={{ fontSize: 10, color: "#444" }}>{ad.datum}</div>}
                         </div>
                         {ad.url && (
-                          <a href={ad.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#f0a500", textDecoration: "none", border: "1px solid #3a2800", padding: "4px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>→ open</a>
+                          <a href={ad.url} target="_blank" rel="noreferrer" style={{
+                            fontSize: 10, color: "#f0a500", textDecoration: "none",
+                            border: "1px solid #3a2800", padding: "4px 10px",
+                            whiteSpace: "nowrap", flexShrink: 0
+                          }}>→ open</a>
                         )}
                       </div>
                     </div>
