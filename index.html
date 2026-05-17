@@ -114,10 +114,16 @@
           setAds(fetched);
           if (discovered.length > 0) {
             setNewAds(prev => [...discovered, ...prev].slice(0, 50));
-            if (notifGranted && typeof Notification !== "undefined") {
-              new Notification(`🎵 ${discovered.length} nieuwe advertentie(s) op Muzikantenbank!`, {
-                body: discovered.map(a => a.titel).join(", "),
-              });
+            if (notifGranted) {
+              const titel = `🎵 ${discovered.length} nieuwe advertentie(s)!`;
+              const opties = { body: discovered.map(a => a.titel).join(", ") };
+              if ("serviceWorker" in navigator) {
+                navigator.serviceWorker.ready
+                  .then(reg => reg.showNotification(titel, opties))
+                  .catch(() => { try { new Notification(titel, opties); } catch(e) {} });
+              } else {
+                try { new Notification(titel, opties); } catch(e) {}
+              }
             }
           }
           setLastCheck(new Date());
