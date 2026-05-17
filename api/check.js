@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // Alleen POST toestaan
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -9,59 +8,95 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "API sleutel niet geconfigureerd op server." });
   }
 
-  const SYSTEM_PROMPT = `Je bent een parser voor advertenties op muzikantenbank.net.
-Zoek naar de meest recente advertenties op https://www.muzikantenbank.net/advertenties/zoeken via web search.
-Geef een JSON-array terug van de gevonden advertenties. Geef ALLEEN geldige JSON terug, geen uitleg, geen markdown backticks.
-Elk item heeft de volgende velden:
-- id: een unieke string identifier (bijv. URL of titel+datum combinatie)
+  const SYSTEM_PROMPT = `Je bent een assistent die advertenties ophaalt van muzikantenbank.net.
+Zoek op https://www.muzikantenbank.net/advertenties/zoeken naar de meest recente advertenties.
+Geef uitsluitend een JSON-array terug. Geen uitleg, geen markdown, geen backticks. Alleen de array.
+Elk item bevat:
+- id: unieke string (gebruik de URL of een combinatie van titel+datum)
 - titel: de advertentietitel
-- type: "gezocht" of "aangeboden" (of "onbekend")
-- datum: datum als string (bijv. "17 mei 2025") als beschikbaar, anders null
-- url: directe URL naar de advertentie als beschikbaar, anders null
-- beschrijving: korte samenvatting (max 100 tekens)
+- type: "gezocht", "aangeboden", of "onbekend"
+- datum: datum als string of null
+- url: directe link of null
+- beschrijving: max 100 tekens samenvatting
 
-Voorbeeld output:
-[{"id":"abc123","titel":"Bassist gezocht","type":"gezocht","datum":"17 mei 2025","url":"https://muzikantenbank.net/...","beschrijving":"Rockband zoekt bassist in Amsterdam"}]
-
-Geef maximaal 20 meest recente advertenties.`;
+Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        system: SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: "Haal de meest recente advertenties op van https://www.muzikantenbank.net/advertenties/zoeken en geef ze terug als JSON array."
-        }]
-      })
-    });
+    let messages = [{
+      role: "user",
+      content: "Zoek de meest recente advertenties op muzikantenbank.net/advertenties/zoeken en geef ze terug als JSON array."
+    }];
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(response.status).json({
-        error: `API fout ${response.status}: ${err?.error?.message || response.statusText}`
+    let finalText = null;
+
+    // Loop voor multi-turn tool use (max 6 rondes)
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2000,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          system: SYSTEM_PROMPT,
+          messages
+        })
       });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        return res.status(response.status).json({
+          error: `API fout ${response.status}: ${err?.error?.message || response.statusText}`
+        });
+      }
+
+      const data = await response.json();
+
+      // Voeg assistent respons toe aan berichten
+      messages.push({ role: "assistant", content: data.content });
+
+      // Zoek tekstblok
+      const textBlock = data.content.find(b => b.type === "text");
+      if (textBlock && textBlock.text.trim()) {
+        finalText = textBlock.text.trim();
+      }
+
+      // Als we klaar zijn (end_turn), stop de loop
+      if (data.stop_reason === "end_turn") {
+        break;
+      }
+
+      // Als er tool_use blokken zijn, stuur tool resultaten terug
+      const toolUseBlocks = data.content.filter(b => b.type === "tool_use");
+      if (toolUseBlocks.length > 0) {
+        const toolResults = toolUseBlocks.map(b => ({
+          type: "tool_result",
+          tool_use_id: b.id,
+          content: "Zoekresultaten zijn beschikbaar."
+        }));
+        messages.push({ role: "user", content: toolResults });
+        continue;
+      }
+
+      // Geen tool use en geen end_turn → stop
+      break;
     }
 
-    const data = await response.json();
-    const textBlock = data.content.find(b => b.type === "text");
-    if (!textBlock) {
-      return res.status(500).json({ error: "Geen tekstrespons ontvangen van API" });
+    if (!finalText) {
+      return res.status(500).json({ error: "Geen respons ontvangen van model." });
     }
 
-    let text = textBlock.text.replace(/```json|```/g, "").trim();
-    const match = text.match(/\[[\s\S]*\]/);
+    // Probeer JSON array te extraheren
+    const clean = finalText.replace(/```json|```/g, "").trim();
+    const match = clean.match(/\[[\s\S]*\]/);
     if (!match) {
-      return res.status(500).json({ error: "Geen geldige JSON gevonden in respons" });
+      return res.status(500).json({
+        error: "Kon geen advertenties ophalen. Probeer het opnieuw."
+      });
     }
 
     const ads = JSON.parse(match[0]);
