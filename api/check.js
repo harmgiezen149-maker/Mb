@@ -19,7 +19,7 @@ Elk item bevat:
 - url: directe link of null
 - beschrijving: max 100 tekens samenvatting
 
-Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
+Geef maximaal 10 advertenties. Begin direct met [ en eindig met ].`;
 
   try {
     let messages = [{
@@ -40,7 +40,7 @@ Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 2000,
+          max_tokens: 4096,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           system: SYSTEM_PROMPT,
           messages
