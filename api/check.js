@@ -23,10 +23,8 @@ export default async function handler(req, res) {
     ? `\n\nZoekfilters die de gebruiker heeft ingesteld:\n${filterRegels.join("\n")}\nGeef alleen advertenties terug die overeenkomen met deze filters.`
     : "";
 
-  const SYSTEM_PROMPT = `Zoek advertenties op muzikantenbank.net/advertenties/zoeken.${filterTekst}
-Reageer UITSLUITEND met een JSON-array. Geen tekst, geen uitleg, geen markdown.
-Formaat: [{"id":"...","titel":"...","type":"gezocht of aangeboden","datum":"...of null","url":"...of null","beschrijving":"..."}]
-Maximaal 10 items. Start met [ en eindig met ].`;
+  const SYSTEM_PROMPT = `Zoek recente advertenties op muzikantenbank.net/advertenties/zoeken.${filterTekst}
+Geef ALLEEN een JSON-array terug, geen tekst. Schema per item: {id,titel,type,datum,url,beschrijving}. Max 8 items.`;
 
   try {
     let messages = [{
@@ -45,8 +43,8 @@ Maximaal 10 items. Start met [ en eindig met ].`;
           "anthropic-version": "2023-06-01"
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 4096,
+          model: "claude-sonnet-4-6",
+          max_tokens: 1500,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           system: SYSTEM_PROMPT,
           messages
