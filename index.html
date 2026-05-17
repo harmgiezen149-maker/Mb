@@ -7,8 +7,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Bebas+Neue&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -16,326 +14,439 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 2px; }
     .pulse { animation: pulse 1.5s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
     .blink { animation: blink 1s step-end infinite; }
-    @keyframes blink { 50% { opacity: 0; } }
-    @keyframes flash { 0% { background: #2a1a00; } 100% { background: transparent; } }
+    @keyframes blink { 50%{opacity:0} }
+    @keyframes flash { 0%{background:#2a1a00} 100%{background:transparent} }
     .new-flash { animation: flash 0.6s ease-out; }
     .btn {
       background: none; border: 1px solid #444; color: #e8e0d0;
       font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-      padding: 6px 14px; cursor: pointer; transition: all 0.15s;
-      letter-spacing: 0.05em;
+      padding: 6px 14px; cursor: pointer; transition: all 0.15s; letter-spacing: 0.05em;
     }
     .btn:hover { border-color: #f0a500; color: #f0a500; }
     .btn.active { border-color: #f0a500; color: #f0a500; background: #1a1200; }
-    .btn.danger:hover { border-color: #e05555; color: #e05555; }
     .btn.primary { border-color: #f0a500; color: #0c0d0f; background: #f0a500; font-weight: 600; }
     .btn.primary:hover { background: #d49200; border-color: #d49200; }
     .btn.stop { border-color: #e05555; color: #e05555; }
     .btn.stop:hover { background: #2a0a0a; }
+    .btn.danger:hover { border-color: #e05555; color: #e05555; }
     .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 2px; letter-spacing: 0.08em; }
     .tag-gezocht { background: #1a2a1a; color: #6ddd6d; border: 1px solid #2a4a2a; }
     .tag-aangeboden { background: #1a1a2a; color: #6d9ddd; border: 1px solid #2a2a4a; }
     .tag-new { background: #2a1800; color: #f0a500; border: 1px solid #5a3a00; }
     .tag-onbekend { background: #2a2a2a; color: #888; border: 1px solid #444; }
-    input[type=number] {
+    select, input[type=number] {
       background: #1a1a1a; border: 1px solid #333; color: #e8e0d0;
-      font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-      padding: 6px 8px; width: 60px;
+      font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 5px 8px; width: 100%;
     }
-    input[type=number]:focus { outline: none; border-color: #f0a500; }
-    @media (max-width: 700px) {
-      .main-grid { grid-template-columns: 1fr !important; }
+    select:focus, input[type=number]:focus { outline: none; border-color: #f0a500; }
+    input[type=number] { width: 60px; }
+    .label { font-size: 10px; color: #555; letter-spacing: 0.15em; margin-bottom: 5px; }
+    .field { margin-bottom: 12px; }
+    .genre-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; max-height: 160px; overflow-y: auto; }
+    .genre-item {
+      font-size: 10px; padding: 4px 6px; border: 1px solid #2a2a2a; cursor: pointer;
+      color: #666; transition: all 0.1s; user-select: none;
     }
+    .genre-item.selected { border-color: #f0a500; color: #f0a500; background: #1a1200; }
+    .genre-item:hover { border-color: #555; color: #aaa; }
+    .section-title { font-size: 10px; letter-spacing: 0.2em; color: #555; margin-bottom: 14px; }
+    .zoektype-btn {
+      flex: 1; padding: 8px; font-size: 10px; letter-spacing: 0.05em; text-align: center;
+      border: 1px solid #333; cursor: pointer; color: #666; background: none;
+      font-family: 'IBM Plex Mono', monospace; transition: all 0.15s;
+    }
+    .zoektype-btn.active { border-color: #f0a500; color: #f0a500; background: #1a1200; }
+    .zoektype-btn:hover { border-color: #555; color: #aaa; }
+    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr !important; } }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+<div id="root"></div>
+<script type="text/babel">
+  const { useState, useEffect, useRef, useCallback } = React;
 
-  <script type="text/babel">
-    const { useState, useEffect, useRef, useCallback } = React;
+  const STORAGE_KEY = "muzikantenbank_known_ads";
+  const FILTERS_KEY = "muzikantenbank_filters";
 
-    const STORAGE_KEY = "muzikantenbank_known_ads";
+  const INSTRUMENTEN = [
+    "","Accordeonist","Bassist","Blazer (overig)","Cellist","Componist",
+    "Contrabassist","Dirigent","DJ","Drummer","Fluitist","Gitarist",
+    "Keyboardist","Klarinettist","Organist","Pianist","Saxofonist",
+    "Slagwerker","Toetsenist","Trompettist","Violist","Vocalist/Zanger",
+    "Overig"
+  ];
 
-    async function fetchLatestAds() {
-      const response = await fetch("/api/check", { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) {
-        const msg = data.error || `Fout ${response.status}`;
-        const debug = data.debug ? `\n\nDebug: ${data.debug}` : "";
-        throw new Error(msg + debug);
-      }
-      return data.ads;
+  const PROVINCIES = [
+    "","Drenthe","Flevoland","Friesland","Gelderland","Groningen",
+    "Limburg","Noord-Brabant","Noord-Holland","Overijssel","Utrecht",
+    "Zeeland","Zuid-Holland"
+  ];
+
+  const GENRES = [
+    "Ambient","Bluegrass","Blues","Chanson","Christelijk","Country",
+    "Dance","Disco","Drum & Bass","Dubstep","Folk","Funk","Gospel",
+    "HipHop","House","Jazz","Latin","Metal","Pop","Punk","Reggae",
+    "Religieus","Rock","Soul","Stonerrock","Techno","Wereldmuziek"
+  ];
+
+  const MAX_OUD = [
+    { val: "", label: "Maakt niet uit" },
+    { val: "1 dag", label: "Vandaag" },
+    { val: "1 week", label: "Afgelopen week" },
+    { val: "1 maand", label: "Afgelopen maand" },
+    { val: "3 maanden", label: "Afgelopen 3 maanden" }
+  ];
+
+  function loadFilters() {
+    try { const r = localStorage.getItem(FILTERS_KEY); return r ? JSON.parse(r) : {}; }
+    catch { return {}; }
+  }
+  function saveFilters(f) {
+    try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch {}
+  }
+  function loadKnownIds() {
+    try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : []; }
+    catch { return []; }
+  }
+  function saveKnownIds(ids) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); } catch {}
+  }
+  function timeAgo(date) {
+    const d = Math.floor((Date.now() - date) / 1000);
+    if (d < 60) return `${d}s geleden`;
+    if (d < 3600) return `${Math.floor(d/60)}m geleden`;
+    if (d < 86400) return `${Math.floor(d/3600)}u geleden`;
+    return `${Math.floor(d/86400)}d geleden`;
+  }
+
+  async function fetchLatestAds(filters) {
+    const response = await fetch("/api/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filters })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const msg = data.error || `Fout ${response.status}`;
+      const debug = data.debug ? `\n\nDebug: ${data.debug}` : "";
+      throw new Error(msg + debug);
+    }
+    return data.ads;
+  }
+
+  function FiltersPanel({ filters, onChange }) {
+    function toggleGenre(g) {
+      const genres = filters.genres || [];
+      const next = genres.includes(g) ? genres.filter(x => x !== g) : [...genres, g];
+      onChange({ ...filters, genres: next });
+    }
+    return (
+      <div style={{ border: "1px solid #222", padding: 20 }}>
+        <div className="section-title">ZOEKFILTERS</div>
+
+        <div className="field">
+          <div className="label">IK ZOEk EEN</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[
+              { val: "band/orkest/project", label: "Band / orkest" },
+              { val: "muzikant(en)", label: "Muzikant(en)" }
+            ].map(o => (
+              <button key={o.val}
+                className={`zoektype-btn ${filters.zoektype === o.val ? "active" : ""}`}
+                onClick={() => onChange({ ...filters, zoektype: filters.zoektype === o.val ? "" : o.val })}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="label">INSTRUMENT / ROL</div>
+          <select value={filters.instrument || ""} onChange={e => onChange({ ...filters, instrument: e.target.value })}>
+            {INSTRUMENTEN.map(i => <option key={i} value={i}>{i || "— Alle —"}</option>)}
+          </select>
+        </div>
+
+        <div className="field">
+          <div className="label">PROVINCIE</div>
+          <select value={filters.provincie || ""} onChange={e => onChange({ ...filters, provincie: e.target.value })}>
+            {PROVINCIES.map(p => <option key={p} value={p}>{p || "— Alle —"}</option>)}
+          </select>
+        </div>
+
+        <div className="field">
+          <div className="label">GENRE(S)</div>
+          <div className="genre-grid">
+            {GENRES.map(g => (
+              <div key={g} className={`genre-item ${(filters.genres||[]).includes(g) ? "selected" : ""}`}
+                onClick={() => toggleGenre(g)}>{g}</div>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="label">MAX. GEPLAATST</div>
+          <select value={filters.maxOud || ""} onChange={e => onChange({ ...filters, maxOud: e.target.value })}>
+            {MAX_OUD.map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
+          </select>
+        </div>
+
+        {(filters.zoektype || filters.instrument || filters.provincie || (filters.genres||[]).length > 0 || filters.maxOud) && (
+          <button className="btn danger" style={{ fontSize: 10, width: "100%", marginTop: 4 }}
+            onClick={() => onChange({})}>✕ Filters wissen</button>
+        )}
+      </div>
+    );
+  }
+
+  function App() {
+    const [ads, setAds] = useState([]);
+    const [newAds, setNewAds] = useState([]);
+    const [lastCheck, setLastCheck] = useState(null);
+    const [status, setStatus] = useState("idle");
+    const [errorMsg, setErrorMsg] = useState("");
+    const [intervalMin, setIntervalMin] = useState(5);
+    const [notifGranted, setNotifGranted] = useState(
+      typeof Notification !== "undefined" ? Notification.permission === "granted" : false
+    );
+    const [filterType, setFilterType] = useState("alle");
+    const [running, setRunning] = useState(false);
+    const [tick, setTick] = useState(0);
+    const [countdown, setCountdown] = useState(null);
+    const [filters, setFilters] = useState(loadFilters());
+    const timerRef = useRef(null);
+    const knownIdsRef = useRef(loadKnownIds());
+    const filtersRef = useRef(filters);
+
+    function handleFiltersChange(f) {
+      setFilters(f);
+      filtersRef.current = f;
+      saveFilters(f);
     }
 
-    function loadKnownIds() {
-      try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : []; }
-      catch { return []; }
-    }
-    function saveKnownIds(ids) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); } catch {}
-    }
-    function timeAgo(date) {
-      const diff = Math.floor((Date.now() - date) / 1000);
-      if (diff < 60) return `${diff}s geleden`;
-      if (diff < 3600) return `${Math.floor(diff / 60)}m geleden`;
-      if (diff < 86400) return `${Math.floor(diff / 3600)}u geleden`;
-      return `${Math.floor(diff / 86400)}d geleden`;
-    }
-
-    function App() {
-      const [ads, setAds] = useState([]);
-      const [newAds, setNewAds] = useState([]);
-      const [lastCheck, setLastCheck] = useState(null);
-      const [status, setStatus] = useState("idle");
-      const [errorMsg, setErrorMsg] = useState("");
-      const [intervalMin, setIntervalMin] = useState(5);
-      const [notifGranted, setNotifGranted] = useState(
-        typeof Notification !== "undefined" ? Notification.permission === "granted" : false
-      );
-      const [filterType, setFilterType] = useState("alle");
-      const [running, setRunning] = useState(false);
-      const [tick, setTick] = useState(0);
-      const [countdown, setCountdown] = useState(null);
-      const timerRef = useRef(null);
-      const knownIdsRef = useRef(loadKnownIds());
-
-      const doCheck = useCallback(async () => {
-        setStatus("checking");
-        setErrorMsg("");
-        try {
-          const fetched = await fetchLatestAds();
-          const knownIds = knownIdsRef.current;
-          const freshIds = fetched.map(a => a.id);
-          const discovered = fetched.filter(a => !knownIds.includes(a.id));
-          knownIdsRef.current = [...new Set([...knownIds, ...freshIds])];
-          saveKnownIds(knownIdsRef.current);
-          setAds(fetched);
-          if (discovered.length > 0) {
-            setNewAds(prev => [...discovered, ...prev].slice(0, 50));
-            if (notifGranted) {
-              const titel = `🎵 ${discovered.length} nieuwe advertentie(s)!`;
-              const opties = { body: discovered.map(a => a.titel).join(", ") };
-              if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.ready
-                  .then(reg => reg.showNotification(titel, opties))
-                  .catch(() => { try { new Notification(titel, opties); } catch(e) {} });
-              } else {
-                try { new Notification(titel, opties); } catch(e) {}
-              }
+    const doCheck = useCallback(async () => {
+      setStatus("checking");
+      setErrorMsg("");
+      try {
+        const fetched = await fetchLatestAds(filtersRef.current);
+        const knownIds = knownIdsRef.current;
+        const freshIds = fetched.map(a => a.id);
+        const discovered = fetched.filter(a => !knownIds.includes(a.id));
+        knownIdsRef.current = [...new Set([...knownIds, ...freshIds])];
+        saveKnownIds(knownIdsRef.current);
+        setAds(fetched);
+        if (discovered.length > 0) {
+          setNewAds(prev => [...discovered, ...prev].slice(0, 50));
+          if (notifGranted) {
+            const titel = `🎵 ${discovered.length} nieuwe advertentie(s)!`;
+            const opties = { body: discovered.map(a => a.titel).join(", ") };
+            if ("serviceWorker" in navigator) {
+              navigator.serviceWorker.ready
+                .then(reg => reg.showNotification(titel, opties))
+                .catch(() => { try { new Notification(titel, opties); } catch(e) {} });
+            } else {
+              try { new Notification(titel, opties); } catch(e) {}
             }
           }
-          setLastCheck(new Date());
-          setStatus("idle");
-        } catch (e) {
-          setStatus("error");
-          setErrorMsg(e.message);
         }
-      }, [notifGranted]);
-
-      useEffect(() => {
-        if (running) {
-          doCheck();
-          timerRef.current = setInterval(() => {
-            doCheck();
-            setTick(t => t + 1);
-          }, intervalMin * 60 * 1000);
-        }
-        return () => clearInterval(timerRef.current);
-      }, [running, intervalMin]);
-
-      useEffect(() => {
-        if (!running || !lastCheck) return;
-        const timer = setInterval(() => {
-          const elapsed = Math.floor((Date.now() - lastCheck.getTime()) / 1000);
-          setCountdown(Math.max(0, intervalMin * 60 - elapsed));
-        }, 1000);
-        return () => clearInterval(timer);
-      }, [running, lastCheck, intervalMin, tick]);
-
-      async function requestNotifPermission() {
-        if (typeof Notification === "undefined") return;
-        const perm = await Notification.requestPermission();
-        setNotifGranted(perm === "granted");
+        setLastCheck(new Date());
+        setStatus("idle");
+      } catch (e) {
+        setStatus("error");
+        setErrorMsg(e.message);
       }
+    }, [notifGranted]);
 
-      function resetKnown() {
-        knownIdsRef.current = [];
-        saveKnownIds([]);
-        setNewAds([]);
-        setAds([]);
-        setLastCheck(null);
+    useEffect(() => {
+      if (running) {
+        doCheck();
+        timerRef.current = setInterval(() => { doCheck(); setTick(t => t+1); }, intervalMin * 60 * 1000);
       }
+      return () => clearInterval(timerRef.current);
+    }, [running, intervalMin]);
 
-      const displayAds = filterType === "alle" ? ads : ads.filter(a => a.type === filterType);
+    useEffect(() => {
+      if (!running || !lastCheck) return;
+      const t = setInterval(() => {
+        setCountdown(Math.max(0, intervalMin*60 - Math.floor((Date.now()-lastCheck.getTime())/1000)));
+      }, 1000);
+      return () => clearInterval(t);
+    }, [running, lastCheck, intervalMin, tick]);
 
-      const fmtCountdown = (s) => {
-        if (s === null) return "--";
-        const m = Math.floor(s / 60), sec = s % 60;
-        return `${m}:${String(sec).padStart(2, "0")}`;
-      };
+    async function requestNotifPermission() {
+      if (typeof Notification === "undefined") return;
+      const p = await Notification.requestPermission();
+      setNotifGranted(p === "granted");
+    }
 
-      return (
-        <div style={{ minHeight: "100vh", background: "#0c0d0f", color: "#e8e0d0", fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
+    function resetKnown() {
+      knownIdsRef.current = [];
+      saveKnownIds([]);
+      setNewAds([]);
+      setAds([]);
+      setLastCheck(null);
+    }
 
-          <div style={{ borderBottom: "1px solid #222", padding: "24px 32px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            <div>
-              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 38, letterSpacing: "0.12em", color: "#f0a500", lineHeight: 1 }}>MUZIKANTENBANK</div>
-              <div style={{ fontSize: 11, color: "#555", letterSpacing: "0.2em", marginTop: 4 }}>ADVERTENTIE MONITOR</div>
-            </div>
-            <div>
-              {status === "checking" && <span className="pulse" style={{ fontSize: 11, color: "#f0a500", letterSpacing: "0.1em" }}>● BEZIG MET OPHALEN...</span>}
-              {status === "error" && <span style={{ fontSize: 11, color: "#e05555" }}>✖ FOUT</span>}
-              {status === "idle" && running && (
-                <span style={{ fontSize: 11, color: "#6ddd6d", letterSpacing: "0.1em" }}>
-                  ● ACTIEF — volgende check: <span style={{ color: "#f0a500" }}>{fmtCountdown(countdown)}</span>
-                </span>
-              )}
-            </div>
+    const displayAds = filterType === "alle" ? ads : ads.filter(a => a.type === filterType);
+    const fmtCD = s => s === null ? "--" : `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+    const activeFilterCount = [
+      filters.zoektype, filters.instrument, filters.provincie, filters.maxOud,
+      ...(filters.genres||[])
+    ].filter(Boolean).length;
+
+    return (
+      <div style={{ minHeight:"100vh", background:"#0c0d0f", color:"#e8e0d0", fontFamily:"'IBM Plex Mono','Courier New',monospace" }}>
+
+        {/* Header */}
+        <div style={{ borderBottom:"1px solid #222", padding:"20px 24px", display:"flex", alignItems:"flex-end", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+          <div>
+            <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:34, letterSpacing:"0.12em", color:"#f0a500", lineHeight:1 }}>MUZIKANTENBANK</div>
+            <div style={{ fontSize:10, color:"#555", letterSpacing:"0.2em", marginTop:3 }}>ADVERTENTIE MONITOR</div>
           </div>
+          <div style={{ fontSize:11 }}>
+            {status === "checking" && <span className="pulse" style={{ color:"#f0a500", letterSpacing:"0.1em" }}>● OPHALEN...</span>}
+            {status === "error" && <span style={{ color:"#e05555" }}>✖ FOUT</span>}
+            {status === "idle" && running && (
+              <span style={{ color:"#6ddd6d" }}>● ACTIEF — <span style={{ color:"#f0a500" }}>{fmtCD(countdown)}</span></span>
+            )}
+          </div>
+        </div>
 
-          <div className="main-grid" style={{ padding: "24px 32px", display: "grid", gridTemplateColumns: "260px 1fr", gap: 32, maxWidth: 1200 }}>
+        <div className="main-grid" style={{ padding:"20px 24px", display:"grid", gridTemplateColumns:"260px 1fr", gap:24, maxWidth:1100 }}>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Sidebar */}
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
-              <div style={{ border: "1px solid #222", padding: 20 }}>
-                <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 16 }}>INSTELLINGEN</div>
-
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>CHECK-INTERVAL (minuten)</div>
-                  <input type="number" min="1" max="60" value={intervalMin}
-                    onChange={e => setIntervalMin(Math.max(1, parseInt(e.target.value) || 5))}
-                    disabled={running} />
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>BROWSERMELDINGEN</div>
-                  {notifGranted
-                    ? <span style={{ fontSize: 11, color: "#6ddd6d" }}>✓ Ingeschakeld</span>
-                    : <button className="btn" onClick={requestNotifPermission} style={{ fontSize: 11 }}>Inschakelen</button>}
-                </div>
-
-                <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
-                  {!running
-                    ? <button className="btn primary" onClick={() => setRunning(true)}>▶ START MONITOR</button>
-                    : <button className="btn stop" onClick={() => { setRunning(false); setCountdown(null); }}>■ STOP</button>}
-                  <button className="btn" onClick={doCheck} disabled={status === "checking"} style={{ fontSize: 11 }}>
-                    {status === "checking" ? "..." : "↻ Nu controleren"}
-                  </button>
-                  <button className="btn danger" onClick={resetKnown} style={{ fontSize: 11 }}>✕ Reset bekende advertenties</button>
-                </div>
+            {/* Controls */}
+            <div style={{ border:"1px solid #222", padding:20 }}>
+              <div className="section-title">MONITOR</div>
+              <div className="field">
+                <div className="label">INTERVAL (min)</div>
+                <input type="number" min="1" max="60" value={intervalMin}
+                  onChange={e => setIntervalMin(Math.max(1, parseInt(e.target.value)||5))}
+                  disabled={running} />
               </div>
-
-              <div style={{ border: "1px solid #222", padding: 20 }}>
-                <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 16 }}>STATUS</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {[
-                    { label: "GEVONDEN", val: ads.length },
-                    { label: "NIEUW", val: newAds.length, highlight: newAds.length > 0 },
-                    { label: "BEKENDE IDs", val: knownIdsRef.current.length },
-                    { label: "LAATSTE CHECK", val: lastCheck ? timeAgo(lastCheck) : "—", small: true }
-                  ].map(({ label, val, highlight, small }) => (
-                    <div key={label} style={{ borderBottom: "1px solid #1a1a1a", paddingBottom: 10 }}>
-                      <div style={{ fontSize: 9, color: "#444", letterSpacing: "0.15em", marginBottom: 2 }}>{label}</div>
-                      <div style={{
-                        fontSize: small ? 13 : 22, fontWeight: 500,
-                        color: highlight ? "#f0a500" : "#e8e0d0",
-                        fontFamily: small ? "'IBM Plex Mono'" : "'Bebas Neue', sans-serif",
-                        letterSpacing: small ? 0 : "0.05em"
-                      }}>{val}</div>
-                    </div>
-                  ))}
-                </div>
+              <div className="field">
+                <div className="label">MELDINGEN</div>
+                {notifGranted
+                  ? <span style={{ fontSize:11, color:"#6ddd6d" }}>✓ Ingeschakeld</span>
+                  : <button className="btn" onClick={requestNotifPermission} style={{ fontSize:10 }}>Inschakelen</button>}
               </div>
-
-              {newAds.length > 0 && (
-                <div style={{ border: "1px solid #5a3a00", background: "#0e0900", padding: 16 }}>
-                  <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#f0a500", marginBottom: 12 }}>
-                    <span className="blink">●</span> NIEUW GEDETECTEERD
-                  </div>
-                  {newAds.slice(0, 5).map((ad, i) => (
-                    <div key={ad.id + i} className="new-flash" style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #1a1200" }}>
-                      <div style={{ fontSize: 12, color: "#e8e0d0", marginBottom: 3 }}>{ad.titel}</div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <span className={`tag tag-${ad.type}`}>{ad.type}</span>
-                        {ad.url && <a href={ad.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#f0a500", textDecoration: "none" }}>→ open</a>}
-                      </div>
-                    </div>
-                  ))}
-                  {newAds.length > 5 && <div style={{ fontSize: 11, color: "#555" }}>+{newAds.length - 5} meer...</div>}
-                </div>
-              )}
+              <div style={{ display:"flex", gap:6, flexDirection:"column" }}>
+                {!running
+                  ? <button className="btn primary" onClick={() => setRunning(true)}>▶ START</button>
+                  : <button className="btn stop" onClick={() => { setRunning(false); setCountdown(null); }}>■ STOP</button>}
+                <button className="btn" onClick={doCheck} disabled={status==="checking"} style={{ fontSize:10 }}>
+                  {status==="checking" ? "..." : "↻ Nu controleren"}
+                </button>
+                <button className="btn danger" onClick={resetKnown} style={{ fontSize:10 }}>✕ Reset bekende advertenties</button>
+              </div>
             </div>
 
-            <div>
-              {status === "error" && (
-                <div style={{ border: "1px solid #5a1a1a", background: "#0e0000", padding: 16, marginBottom: 20, fontSize: 12, color: "#e05555" }}>
-                  ✖ {errorMsg}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                {["alle", "gezocht", "aangeboden"].map(f => (
-                  <button key={f} className={`btn ${filterType === f ? "active" : ""}`}
-                    onClick={() => setFilterType(f)}
-                    style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                    {f}
-                  </button>
+            {/* Status */}
+            <div style={{ border:"1px solid #222", padding:20 }}>
+              <div className="section-title">STATUS</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                {[
+                  { label:"GEVONDEN", val:ads.length },
+                  { label:"NIEUW", val:newAds.length, hi:newAds.length>0 },
+                  { label:"FILTERS", val:activeFilterCount, hi:activeFilterCount>0 },
+                  { label:"LAATSTE CHECK", val:lastCheck ? timeAgo(lastCheck) : "—", sm:true }
+                ].map(({ label, val, hi, sm }) => (
+                  <div key={label} style={{ borderBottom:"1px solid #1a1a1a", paddingBottom:8 }}>
+                    <div style={{ fontSize:9, color:"#444", letterSpacing:"0.12em", marginBottom:2 }}>{label}</div>
+                    <div style={{ fontSize:sm?12:20, color:hi?"#f0a500":"#e8e0d0", fontFamily:sm?"'IBM Plex Mono'":"'Bebas Neue',sans-serif" }}>{val}</div>
+                  </div>
                 ))}
               </div>
+            </div>
 
-              {ads.length === 0 && status !== "checking" && (
-                <div style={{ color: "#333", fontSize: 13, paddingTop: 40, textAlign: "center" }}>
-                  <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>♩</div>
-                  <div>Start de monitor om advertenties op te halen.</div>
-                </div>
-              )}
-              {status === "checking" && ads.length === 0 && (
-                <div style={{ paddingTop: 40, textAlign: "center" }}>
-                  <div className="pulse" style={{ fontSize: 11, letterSpacing: "0.2em", color: "#f0a500" }}>OPHALEN VIA WEB SEARCH...</div>
-                </div>
-              )}
+            {/* Filters */}
+            <FiltersPanel filters={filters} onChange={handleFiltersChange} />
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {displayAds.map(ad => {
-                  const isNew = newAds.some(n => n.id === ad.id);
-                  return (
-                    <div key={ad.id} style={{
-                      padding: "14px 18px",
-                      border: `1px solid ${isNew ? "#3a2800" : "#1a1a1a"}`,
-                      background: isNew ? "#0a0700" : "transparent",
-                      transition: "background 0.3s"
-                    }}>
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                            {isNew && <span className="tag tag-new">NIEUW</span>}
-                            <span className={`tag tag-${ad.type}`}>{ad.type}</span>
-                            <span style={{ fontSize: 13, color: "#e8e0d0", fontWeight: 500 }}>{ad.titel}</span>
-                          </div>
-                          {ad.beschrijving && <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>{ad.beschrijving}</div>}
-                          {ad.datum && <div style={{ fontSize: 10, color: "#444" }}>{ad.datum}</div>}
-                        </div>
-                        {ad.url && (
-                          <a href={ad.url} target="_blank" rel="noreferrer" style={{
-                            fontSize: 10, color: "#f0a500", textDecoration: "none",
-                            border: "1px solid #3a2800", padding: "4px 10px",
-                            whiteSpace: "nowrap", flexShrink: 0
-                          }}>→ open</a>
-                        )}
-                      </div>
+            {/* Nieuwe advertenties */}
+            {newAds.length > 0 && (
+              <div style={{ border:"1px solid #5a3a00", background:"#0e0900", padding:16 }}>
+                <div style={{ fontSize:10, letterSpacing:"0.2em", color:"#f0a500", marginBottom:12 }}>
+                  <span className="blink">●</span> NIEUW
+                </div>
+                {newAds.slice(0,5).map((ad,i) => (
+                  <div key={ad.id+i} className="new-flash" style={{ marginBottom:8, paddingBottom:8, borderBottom:"1px solid #1a1200" }}>
+                    <div style={{ fontSize:11, color:"#e8e0d0", marginBottom:3 }}>{ad.titel}</div>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span className={`tag tag-${ad.type}`}>{ad.type}</span>
+                      {ad.url && <a href={ad.url} target="_blank" rel="noreferrer" style={{ fontSize:10, color:"#f0a500", textDecoration:"none" }}>→ open</a>}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
+                {newAds.length > 5 && <div style={{ fontSize:10, color:"#555" }}>+{newAds.length-5} meer...</div>}
               </div>
+            )}
+          </div>
+
+          {/* Hoofdpaneel */}
+          <div>
+            {status === "error" && (
+              <div style={{ border:"1px solid #5a1a1a", background:"#0e0000", padding:14, marginBottom:16, fontSize:11, color:"#e05555", wordBreak:"break-word" }}>
+                ✖ {errorMsg}
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+              {["alle","gezocht","aangeboden"].map(f => (
+                <button key={f} className={`btn ${filterType===f?"active":""}`}
+                  onClick={() => setFilterType(f)}
+                  style={{ fontSize:10, textTransform:"uppercase", letterSpacing:"0.1em" }}>{f}</button>
+              ))}
+            </div>
+
+            {ads.length===0 && status!=="checking" && (
+              <div style={{ color:"#333", fontSize:13, paddingTop:40, textAlign:"center" }}>
+                <div style={{ fontSize:32, marginBottom:12, opacity:0.3 }}>♩</div>
+                <div>Stel je filters in en start de monitor.</div>
+              </div>
+            )}
+            {status==="checking" && ads.length===0 && (
+              <div style={{ paddingTop:40, textAlign:"center" }}>
+                <div className="pulse" style={{ fontSize:10, letterSpacing:"0.2em", color:"#f0a500" }}>OPHALEN VIA WEB SEARCH...</div>
+              </div>
+            )}
+
+            <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+              {displayAds.map(ad => {
+                const isNew = newAds.some(n => n.id === ad.id);
+                return (
+                  <div key={ad.id} style={{ padding:"12px 16px", border:`1px solid ${isNew?"#3a2800":"#1a1a1a"}`, background:isNew?"#0a0700":"transparent" }}>
+                    <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5, flexWrap:"wrap" }}>
+                          {isNew && <span className="tag tag-new">NIEUW</span>}
+                          <span className={`tag tag-${ad.type}`}>{ad.type}</span>
+                          <span style={{ fontSize:12, color:"#e8e0d0", fontWeight:500 }}>{ad.titel}</span>
+                        </div>
+                        {ad.beschrijving && <div style={{ fontSize:10, color:"#555", marginBottom:3 }}>{ad.beschrijving}</div>}
+                        {ad.datum && <div style={{ fontSize:10, color:"#3a3a3a" }}>{ad.datum}</div>}
+                      </div>
+                      {ad.url && (
+                        <a href={ad.url} target="_blank" rel="noreferrer"
+                          style={{ fontSize:10, color:"#f0a500", textDecoration:"none", border:"1px solid #3a2800", padding:"3px 8px", whiteSpace:"nowrap", flexShrink:0 }}>
+                          → open
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-  </script>
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
 </body>
 </html>
