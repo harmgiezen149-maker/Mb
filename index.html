@@ -61,7 +61,11 @@
     async function fetchLatestAds() {
       const response = await fetch("/api/check", { method: "POST" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Fout ${response.status}`);
+      if (!response.ok) {
+        const msg = data.error || `Fout ${response.status}`;
+        const debug = data.debug ? `\n\nDebug: ${data.debug}` : "";
+        throw new Error(msg + debug);
+      }
       return data.ads;
     }
 
