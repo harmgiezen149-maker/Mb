@@ -1,0 +1,380 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+const STORAGE_KEY = "muzikantenbank_known_ads";
+const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minuten
+
+const SYSTEM_PROMPT = `Je bent een parser voor advertenties op muzikantenbank.net.
+Zoek naar de meest recente advertenties op https://www.muzikantenbank.net/advertenties/zoeken via web search.
+Geef een JSON-array terug van de gevonden advertenties. Geef ALLEEN geldige JSON terug, geen uitleg, geen markdown backticks.
+Elk item heeft de volgende velden:
+- id: een unieke string identifier (bijv. URL of titel+datum combinatie)
+- titel: de advertentietitel
+- type: "gezocht" of "aangeboden" (of "onbekend")
+- datum: datum als string (bijv. "17 mei 2025") als beschikbaar, anders null
+- url: directe URL naar de advertentie als beschikbaar, anders null
+- beschrijving: korte samenvatting (max 100 tekens)
+
+Voorbeeld output:
+[{"id":"abc123","titel":"Bassist gezocht","type":"gezocht","datum":"17 mei 2025","url":"https://...","beschrijving":"Rockband zoekt bassist in Amsterdam"}]
+
+Geef maximaal 20 meest recente advertenties.`;
+
+async function fetchLatestAds() {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: "Haal de meest recente advertenties op van https://www.muzikantenbank.net/advertenties/zoeken en geef ze terug als JSON array."
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) throw new Error(`API fout: ${response.status}`);
+  const data = await response.json();
+
+  const textBlock = data.content.find(b => b.type === "text");
+  if (!textBlock) throw new Error("Geen tekstrespons ontvangen");
+
+  let text = textBlock.text.replace(/```json|```/g, "").trim();
+  // Find JSON array in text
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error("Geen geldige JSON array gevonden");
+  return JSON.parse(match[0]);
+}
+
+function loadKnownIds() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveKnownIds(ids) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); } catch {}
+}
+
+function timeAgo(date) {
+  const diff = Math.floor((Date.now() - date) / 1000);
+  if (diff < 60) return `${diff}s geleden`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m geleden`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}u geleden`;
+  return `${Math.floor(diff / 86400)}d geleden`;
+}
+
+export default function MuzikantenMonitor() {
+  const [ads, setAds] = useState([]);
+  const [newAds, setNewAds] = useState([]);
+  const [lastCheck, setLastCheck] = useState(null);
+  const [status, setStatus] = useState("idle"); // idle | checking | error
+  const [errorMsg, setErrorMsg] = useState("");
+  const [intervalMin, setIntervalMin] = useState(5);
+  const [notifGranted, setNotifGranted] = useState(
+    typeof Notification !== "undefined" ? Notification.permission === "granted" : false
+  );
+  const [filterType, setFilterType] = useState("alle");
+  const [running, setRunning] = useState(false);
+  const [tick, setTick] = useState(0);
+  const timerRef = useRef(null);
+  const knownIdsRef = useRef(loadKnownIds());
+
+  const doCheck = useCallback(async () => {
+    setStatus("checking");
+    setErrorMsg("");
+    try {
+      const fetched = await fetchLatestAds();
+      const knownIds = knownIdsRef.current;
+      const freshIds = fetched.map(a => a.id);
+      const discovered = fetched.filter(a => !knownIds.includes(a.id));
+
+      knownIdsRef.current = [...new Set([...knownIds, ...freshIds])];
+      saveKnownIds(knownIdsRef.current);
+
+      setAds(fetched);
+      if (discovered.length > 0) {
+        setNewAds(prev => [...discovered, ...prev].slice(0, 50));
+        if (notifGranted && typeof Notification !== "undefined") {
+          new Notification(`🎵 ${discovered.length} nieuwe advertentie(s) op Muzikantenbank!`, {
+            body: discovered.map(a => a.titel).join(", "),
+            icon: "https://www.muzikantenbank.net/favicon.ico"
+          });
+        }
+      }
+      setLastCheck(new Date());
+      setStatus("idle");
+    } catch (e) {
+      setStatus("error");
+      setErrorMsg(e.message);
+    }
+  }, [notifGranted]);
+
+  useEffect(() => {
+    if (running) {
+      doCheck();
+      timerRef.current = setInterval(() => {
+        doCheck();
+        setTick(t => t + 1);
+      }, intervalMin * 60 * 1000);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [running, intervalMin]);
+
+  // Countdown
+  const [countdown, setCountdown] = useState(null);
+  useEffect(() => {
+    if (!running || !lastCheck) return;
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastCheck.getTime()) / 1000);
+      const total = intervalMin * 60;
+      setCountdown(Math.max(0, total - elapsed));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [running, lastCheck, intervalMin, tick]);
+
+  async function requestNotifPermission() {
+    if (typeof Notification === "undefined") return;
+    const perm = await Notification.requestPermission();
+    setNotifGranted(perm === "granted");
+  }
+
+  function resetKnown() {
+    knownIdsRef.current = [];
+    saveKnownIds([]);
+    setNewAds([]);
+    setAds([]);
+    setLastCheck(null);
+  }
+
+  const displayAds = filterType === "alle" ? ads : ads.filter(a => a.type === filterType);
+
+  const fmtCountdown = (s) => {
+    if (s === null) return "--";
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${m}:${String(sec).padStart(2, "0")}`;
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#0c0d0f",
+      color: "#e8e0d0",
+      fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+      padding: "0"
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Bebas+Neue&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 2px; }
+        .pulse { animation: pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .blink { animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .new-flash { animation: flash 0.6s ease-out; }
+        @keyframes flash { 0% { background: #2a1a00; } 100% { background: transparent; } }
+        .btn {
+          background: none; border: 1px solid #444; color: #e8e0d0;
+          font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+          padding: 6px 14px; cursor: pointer; transition: all 0.15s;
+          letter-spacing: 0.05em;
+        }
+        .btn:hover { border-color: #f0a500; color: #f0a500; }
+        .btn.active { border-color: #f0a500; color: #f0a500; background: #1a1200; }
+        .btn.danger:hover { border-color: #e05555; color: #e05555; }
+        .btn.primary { border-color: #f0a500; color: #0c0d0f; background: #f0a500; font-weight: 600; }
+        .btn.primary:hover { background: #d49200; border-color: #d49200; }
+        .btn.stop { border-color: #e05555; color: #e05555; }
+        .btn.stop:hover { background: #2a0a0a; }
+        .tag { display: inline-block; font-size: 10px; padding: 2px 8px;
+               border-radius: 2px; letter-spacing: 0.08em; }
+        .tag-gezocht { background: #1a2a1a; color: #6ddd6d; border: 1px solid #2a4a2a; }
+        .tag-aangeboden { background: #1a1a2a; color: #6d9ddd; border: 1px solid #2a2a4a; }
+        .tag-new { background: #2a1800; color: #f0a500; border: 1px solid #5a3a00; }
+        .tag-onbekend { background: #2a2a2a; color: #888; border: 1px solid #444; }
+        input[type=number] {
+          background: #1a1a1a; border: 1px solid #333; color: #e8e0d0;
+          font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+          padding: 6px 8px; width: 60px;
+        }
+        input[type=number]:focus { outline: none; border-color: #f0a500; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ borderBottom: "1px solid #222", padding: "24px 32px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 38, letterSpacing: "0.12em", color: "#f0a500", lineHeight: 1 }}>
+            MUZIKANTENBANK
+          </div>
+          <div style={{ fontSize: 11, color: "#555", letterSpacing: "0.2em", marginTop: 4 }}>
+            ADVERTENTIE MONITOR — muzikantenbank.net/advertenties/zoeken
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {status === "checking" && (
+            <span className="pulse" style={{ fontSize: 11, color: "#f0a500", letterSpacing: "0.1em" }}>● BEZIG MET OPHALEN...</span>
+          )}
+          {status === "error" && (
+            <span style={{ fontSize: 11, color: "#e05555" }}>✖ FOUT</span>
+          )}
+          {status === "idle" && running && (
+            <span style={{ fontSize: 11, color: "#6ddd6d", letterSpacing: "0.1em" }}>● ACTIEF — volgende check: <span style={{ color: "#f0a500" }}>{fmtCountdown(countdown)}</span></span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: "24px 32px", display: "grid", gridTemplateColumns: "280px 1fr", gap: 32, maxWidth: 1200 }}>
+        {/* Sidebar */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+          {/* Controls */}
+          <div style={{ border: "1px solid #222", padding: 20 }}>
+            <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 16 }}>INSTELLINGEN</div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>CHECK-INTERVAL (minuten)</div>
+              <input type="number" min="1" max="60" value={intervalMin}
+                onChange={e => setIntervalMin(Math.max(1, parseInt(e.target.value) || 5))}
+                disabled={running}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "#777", marginBottom: 6 }}>BROWSERMELDINGEN</div>
+              {notifGranted
+                ? <span style={{ fontSize: 11, color: "#6ddd6d" }}>✓ Ingeschakeld</span>
+                : <button className="btn" onClick={requestNotifPermission} style={{ fontSize: 11 }}>Inschakelen</button>
+              }
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
+              {!running
+                ? <button className="btn primary" onClick={() => setRunning(true)}>▶ START MONITOR</button>
+                : <button className="btn stop" onClick={() => { setRunning(false); setCountdown(null); }}>■ STOP</button>
+              }
+              <button className="btn" onClick={doCheck} disabled={status === "checking"} style={{ fontSize: 11 }}>
+                {status === "checking" ? "..." : "↻ Nu controleren"}
+              </button>
+              <button className="btn danger" onClick={resetKnown} style={{ fontSize: 11 }}>
+                ✕ Reset bekende advertenties
+              </button>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ border: "1px solid #222", padding: 20 }}>
+            <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#555", marginBottom: 16 }}>STATUS</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {[
+                { label: "GEVONDEN", val: ads.length },
+                { label: "NIEUW", val: newAds.length, highlight: newAds.length > 0 },
+                { label: "BEKENDE IDs", val: knownIdsRef.current.length },
+                { label: "LAATSTE CHECK", val: lastCheck ? timeAgo(lastCheck) : "—", small: true }
+              ].map(({ label, val, highlight, small }) => (
+                <div key={label} style={{ borderBottom: "1px solid #1a1a1a", paddingBottom: 10 }}>
+                  <div style={{ fontSize: 9, color: "#444", letterSpacing: "0.15em", marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: small ? 13 : 22, fontWeight: 500, color: highlight ? "#f0a500" : "#e8e0d0", fontFamily: small ? "'IBM Plex Mono'" : "'Bebas Neue', sans-serif", letterSpacing: small ? 0 : "0.05em" }}>{val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* New ads alert */}
+          {newAds.length > 0 && (
+            <div style={{ border: "1px solid #5a3a00", background: "#0e0900", padding: 16 }}>
+              <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "#f0a500", marginBottom: 12 }}>
+                <span className="blink">●</span> NIEUW GEDETECTEERD
+              </div>
+              {newAds.slice(0, 5).map((ad, i) => (
+                <div key={ad.id + i} className="new-flash" style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #1a1200" }}>
+                  <div style={{ fontSize: 12, color: "#e8e0d0", marginBottom: 3 }}>{ad.titel}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span className={`tag tag-${ad.type}`}>{ad.type}</span>
+                    {ad.url && <a href={ad.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#f0a500", textDecoration: "none" }}>→ open</a>}
+                  </div>
+                </div>
+              ))}
+              {newAds.length > 5 && <div style={{ fontSize: 11, color: "#555" }}>+{newAds.length - 5} meer...</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Main content */}
+        <div>
+          {status === "error" && (
+            <div style={{ border: "1px solid #5a1a1a", background: "#0e0000", padding: 16, marginBottom: 20, fontSize: 12, color: "#e05555" }}>
+              ✖ {errorMsg}
+            </div>
+          )}
+
+          {/* Filter */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {["alle", "gezocht", "aangeboden"].map(f => (
+              <button key={f} className={`btn ${filterType === f ? "active" : ""}`}
+                onClick={() => setFilterType(f)} style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                {f}
+              </button>
+            ))}
+          </div>
+
+          {/* Ad list */}
+          {ads.length === 0 && status !== "checking" && (
+            <div style={{ color: "#333", fontSize: 13, paddingTop: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>♩</div>
+              <div>Start de monitor om advertenties op te halen.</div>
+            </div>
+          )}
+
+          {status === "checking" && ads.length === 0 && (
+            <div style={{ color: "#444", fontSize: 13, paddingTop: 40, textAlign: "center" }}>
+              <div className="pulse" style={{ fontSize: 11, letterSpacing: "0.2em", color: "#f0a500" }}>OPHALEN VIA WEB SEARCH...</div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {displayAds.map(ad => {
+              const isNew = newAds.some(n => n.id === ad.id);
+              return (
+                <div key={ad.id} style={{
+                  padding: "14px 18px",
+                  border: `1px solid ${isNew ? "#3a2800" : "#1a1a1a"}`,
+                  background: isNew ? "#0a0700" : "transparent",
+                  transition: "background 0.3s"
+                }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                        {isNew && <span className="tag tag-new">NIEUW</span>}
+                        <span className={`tag tag-${ad.type}`}>{ad.type}</span>
+                        <span style={{ fontSize: 13, color: "#e8e0d0", fontWeight: 500 }}>{ad.titel}</span>
+                      </div>
+                      {ad.beschrijving && (
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>{ad.beschrijving}</div>
+                      )}
+                      {ad.datum && (
+                        <div style={{ fontSize: 10, color: "#444" }}>{ad.datum}</div>
+                      )}
+                    </div>
+                    {ad.url && (
+                      <a href={ad.url} target="_blank" rel="noreferrer" style={{
+                        fontSize: 10, color: "#f0a500", textDecoration: "none",
+                        border: "1px solid #3a2800", padding: "4px 10px",
+                        whiteSpace: "nowrap", flexShrink: 0
+                      }}>→ open</a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
