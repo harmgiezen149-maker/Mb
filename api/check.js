@@ -25,13 +25,18 @@ export default async function handler(req, res) {
 
   const SYSTEM_PROMPT = `Je bent een assistent die advertenties ophaalt van muzikantenbank.net.
 Zoek op https://www.muzikantenbank.net/advertenties/zoeken naar de meest recente advertenties.${filterTekst}
+
+BELANGRIJK voor de url: zoek de directe link naar elke individuele advertentie op.
+Advertentie-URLs op muzikantenbank.net zien er zo uit: https://www.muzikantenbank.net/advertenties/[slug-of-id]
+Geef NOOIT de zoekpagina-URL terug als advertentie-url. Als je de directe URL niet kunt vinden, geef dan null.
+
 Geef uitsluitend een JSON-array terug. Geen uitleg, geen markdown, geen backticks. Alleen de array.
 Elk item bevat:
-- id: unieke string (gebruik de URL of een combinatie van titel+datum)
+- id: unieke string (gebruik de directe URL of titel+datum)
 - titel: de advertentietitel
 - type: "gezocht", "aangeboden", of "onbekend"
 - datum: datum als string of null
-- url: directe link of null
+- url: directe link naar de individuele advertentie, of null
 - beschrijving: max 100 tekens samenvatting
 
 Geef maximaal 10 advertenties. Begin direct met [ en eindig met ].`;
