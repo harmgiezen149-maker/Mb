@@ -28,8 +28,8 @@ Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
     }];
 
     let finalText = null;
+    let allTextBlocks = [];
 
-    // Loop voor multi-turn tool use (max 6 rondes)
     for (let i = 0; i < 6; i++) {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -55,22 +55,16 @@ Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
       }
 
       const data = await response.json();
-
-      // Voeg assistent respons toe aan berichten
       messages.push({ role: "assistant", content: data.content });
 
-      // Zoek tekstblok
       const textBlock = data.content.find(b => b.type === "text");
       if (textBlock && textBlock.text.trim()) {
         finalText = textBlock.text.trim();
+        allTextBlocks.push(`[ronde ${i+1}]: ${finalText.substring(0, 300)}`);
       }
 
-      // Als we klaar zijn (end_turn), stop de loop
-      if (data.stop_reason === "end_turn") {
-        break;
-      }
+      if (data.stop_reason === "end_turn") break;
 
-      // Als er tool_use blokken zijn, stuur tool resultaten terug
       const toolUseBlocks = data.content.filter(b => b.type === "tool_use");
       if (toolUseBlocks.length > 0) {
         const toolResults = toolUseBlocks.map(b => ({
@@ -82,20 +76,20 @@ Geef maximaal 20 advertenties. Begin direct met [ en eindig met ].`;
         continue;
       }
 
-      // Geen tool use en geen end_turn → stop
       break;
     }
 
     if (!finalText) {
-      return res.status(500).json({ error: "Geen respons ontvangen van model." });
+      return res.status(500).json({ error: "Geen tekst ontvangen.", debug: allTextBlocks });
     }
 
-    // Probeer JSON array te extraheren
     const clean = finalText.replace(/```json|```/g, "").trim();
     const match = clean.match(/\[[\s\S]*\]/);
     if (!match) {
+      // Stuur de ruwe tekst terug als debug info
       return res.status(500).json({
-        error: "Kon geen advertenties ophalen. Probeer het opnieuw."
+        error: "Geen JSON array gevonden.",
+        debug: finalText.substring(0, 500)
       });
     }
 
